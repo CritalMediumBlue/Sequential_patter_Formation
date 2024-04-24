@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body>
+
+<div id='plot'></div>
+<script>
+    let N=400;
+    // Initialize some data
+    function initData() {
+    let x = [];
+    let Q = [];
+    let Phi = [];
+    let R = [];
+    let V = [];
+    
+    for(let i = 0; i < N; i++) {
+        x.push(i/(N/4));
+        Q.push(i < (N/4) ? 0.4 : 0);
+        Phi.push(Math.PI);
+        R.push(0);
+        V.push(0);
+    }
+    return [x, Q, Phi, R, V];
+}
+
+    let [x, Q, Phi, R, V] = initData();
+    let time_step = 0;
+    let E = 0.05;  // diffusion coefficient of Q
+    let D = 1;  // diffusion coefficient of R
+    let dx = x[1] - x[0]; // spatial step
+    let dt = (0.5* dx * dx / D)*0.99; // time step by Courant-Friedrichs-Lewy (CFL) condition
+    let mu = 1; // basal production rate of Q
+    let nu = 0.5; // basal production rate of R
+    let nu_prime = 3;  // production rate of R by phi
+    let epsilon_0 = 0.004; // coupling strength 
+    let Q_star = 0.05;  // threshold of Q {Q^*}
+    let omega_0 = 4; // oscillation frequency
+    let k_0 = 0.15; // characteristic elongation rate
+    let k = 1; // decay rate of Q
+    let k_prime = 150; // decay rate of Q by R
+    let h = 5 // decay rate of R
+    let h_prime = 40; // decay rate of R by Q
+    let x_0 = 1; // position of the source
+
+
+
+    
+    function updateData() {
+    time_step += 1;
+    let newQ = Q.slice();
+    let newR = R.slice();
+    let newPhi = Phi.slice();
+    let newV = V.slice();
+    
+    // Boundary condition for velocity at x=0
+    newV[0] = 0;
+    
+    // Recalculate velocity field 
+    for (let i = 1; i < N; i++) {
+        let dv_dx = k_0 * Q[i] / Q_star; 
+        newV[i] = newV[i - 1] + dv_dx * dx;
+    }
+    
+    // Compute phi, Q, and R for each internal node
+    for (let i = 1; i < N ; i++) {
+        // Midpoint derivatives for second-order spatial accuracy
+        let dPhi_dx = (Phi[i + 1] - Phi[i - 1]) / (2 * dx);
+        let d2Phi_dx2 = (Phi[i + 1] - 2 * Phi[i] + Phi[i - 1]) / (dx * dx);
+        let dQ_dx = (Q[i + 1] - Q[i - 1]) / (2 * dx);
+        let d2Q_dx2 = (Q[i + 1] - 2 * Q[i] + Q[i - 1]) / (dx * dx);
+        let dR_dx = (R[i + 1] - R[i - 1]) / (2 * dx);
+        let d2R_dx2 = (R[i + 1] - 2 * R[i] + R[i - 1]) / (dx * dx);
+        
+        // Compute $\partial_x (v Q)$ and $\partial_x (v R)$ correctly
+        let dVQ_dx = newV[i] * dQ_dx + Q[i] * ((newV[i + 1] - newV[i - 1]) / (2 * dx));
+        let dVR_dx = newV[i] * dR_dx + R[i] * ((newV[i + 1] - newV[i - 1]) / (2 * dx));
+        
+        // Update $\phi$, $Q$, and $R$ using their equations
+        let dPhi_dt = -newV[i] * dPhi_dx + omega_0 * (Q[i] / Q_star) + epsilon_0 * (Q[i] / Q_star) * d2Phi_dx2;
+        if (time_step > 10000){ 
+        newPhi[i] = Phi[i] + dPhi_dt * dt;
+        }
+        let sigma_x = (i < Math.ceil(x_0 / dx) ? 1 : 0); // source term for Q
+        let dQ_dt = -dVQ_dx + E * d2Q_dx2 - k * Q[i] - k_prime * R[i] * Q[i] + mu * sigma_x;
+        newQ[i] = Q[i] + dQ_dt * dt;
+        
+        let rho_phi = (1 + Math.cos(Phi[i])) / 2; // production rate for R
+        let theta_Q = Q[i] < Q_star ? 1 : 0; // Heaviside function for R production
+        let dR_dt = -dVR_dx + D * d2R_dx2 - h * R[i] - h_prime * Q[i] * R[i] + (nu + nu_prime * rho_phi) * theta_Q;
+        if (time_step > 5000){ 
+
+        newR[i] = R[i] + dR_dt * dt;
+        }
+    }
+    
+    // Apply no-flux boundary conditions at both ends of the domain
+    newQ[0] = newQ[1];
+    newR[0] = newR[1];
+    newPhi[0] = newPhi[1];
+    newQ[N - 1] = newQ[N - 2];
+    newR[N - 1] = newR[N - 2];
+    newPhi[N - 1] = newPhi[N - 2];
+    
+    // Update global arrays
+    Q = newQ;
+    R = newR;
+    Phi = newPhi;
+    V = newV;
+}
+
+    let layout = {
+        title: 'Sequential Pattern Fromation Simulation',
+        xaxis: {
+            title: 'Space'
+        },
+        yaxis: {
+            title: 'Concentration',
+            range: [0, 0.6] // Set the range of y-axis
+        },
+        yaxis2: {
+        overlaying: 'y',
+        title: 'Phase',
+        side: 'right', // Specify that the second y-axis is on the right
+        range: [0, 1]
+    }
+    };
+
+    setInterval(function () {
+        updateData();
+        let trace1 = {
+            x: x,
+            y: Q,
+            mode: 'lines',
+            type: 'scatter',
+            name: 'Q',
+            line: {
+                color: 'green' // Set the color of the line to green
+            }
+        };
+        let trace2 = {
+            x: x,
+            y: R,
+            mode: 'lines',
+            type: 'scatter',
+            name: 'R',
+            line: {
+                color: 'red' // Set the color of the line to red
+            }
+        };
+        let trace3 = {
+            x: x,
+            y: Phi.map(value => (1+Math.cos(value ))/2), // Multiply each element by PI and then take the cosine
+            mode: 'lines',
+            type: 'scatter',
+            name: 'Phase',
+            yaxis: 'y2', // Specify that this trace uses the second y-axis
+            line: {
+                color: 'blue' // Set the color of the line to blue
+            }
+        };
+        let trace4 = {
+            x: x,
+            y: V.map(value => value / 20), // Divide each element by 10
+            mode: 'lines',
+            type: 'scatter',
+            name: 'Velocity',
+            line: {
+                color: 'black' // Set the color of the line to black
+            }
+        };
+
+        Plotly.react('plot', [trace1, trace2, trace3], layout);
+    }, 1); 
+</script>
+</body>
+</html>
